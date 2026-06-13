@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>バブル思考ボード v0</title>
+<title>バブル思考ボード v0.1</title>
 <style>
   :root{
     --night1:#0b1026; --night2:#1c1440; --night3:#241a4f;
@@ -51,8 +51,12 @@
     border:1px solid color-mix(in srgb, var(--cat) 55%, transparent);
     box-shadow:0 0 18px color-mix(in srgb, var(--cat) 22%, transparent), inset 0 0 12px rgba(255,255,255,.05);
     backdrop-filter:blur(4px);
-    cursor:pointer;user-select:none;
+    cursor:grab;user-select:none;touch-action:none;
     animation:drift var(--dur) ease-in-out var(--delay) infinite alternate;
+  }
+  .bubble.held{
+    animation:none !important;z-index:15;cursor:grabbing;transform:scale(1.06);
+    box-shadow:0 8px 28px rgba(0,0,0,.5), 0 0 24px color-mix(in srgb, var(--cat) 38%, transparent);
   }
   .bubble .tag{display:block;font-size:9px;letter-spacing:.08em;color:color-mix(in srgb, var(--cat) 85%, white 10%);margin-bottom:3px;}
   .bubble.born{animation:rise .55s cubic-bezier(.2,.9,.3,1.2) forwards, drift var(--dur) ease-in-out .6s infinite alternate;}
@@ -86,7 +90,7 @@
     padding:18px 16px calc(20px + env(safe-area-inset-bottom));
     box-shadow:0 -8px 40px rgba(0,0,0,.5);
   }
-  #sheet .full{font-size:14px;line-height:1.7;margin-bottom:6px;word-break:break-word;}
+  #sheet .full{font-size:14px;line-height:1.7;margin-bottom:6px;word-break:break-word;user-select:text;-webkit-user-select:text;}
   #sheet .when{font-size:11px;color:var(--ink-dim);margin-bottom:14px;}
   .pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
   .pill{
@@ -131,6 +135,7 @@
   <div class="when" id="sheetWhen"></div>
   <div class="pills" id="pills"></div>
   <div class="sheet-actions">
+    <button id="copyOne">全文コピー</button>
     <button class="danger" id="delOne">この子を消す</button>
     <button id="closeSheet">閉じる</button>
   </div>
@@ -216,13 +221,52 @@ function render(){
     const short = b.text.length > 28 ? b.text.slice(0,28)+"…" : b.text;
     el.innerHTML = (b.cat!=="none" ? `<span class="tag">${catOf(b.cat).label}</span>` : "") +
                    `<span>${esc(short)}</span>`;
-    el.onclick = () => openSheet(b.id);
+    el.onclick = null;
+    attachDrag(el, b);
     board.appendChild(el);
     b.born = false;
   }
 }
 
 function esc(s){ return s.replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+/* ドラッグ（8px動いたら移動、動かなければタップ＝シートを開く） */
+function attachDrag(el, b){
+  let sx=0, sy=0, dragging=false;
+  el.addEventListener("pointerdown", e=>{
+    sx=e.clientX; sy=e.clientY; dragging=false;
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", e=>{
+    if(!el.hasPointerCapture(e.pointerId)) return;
+    if(!dragging && Math.hypot(e.clientX-sx, e.clientY-sy) > 8){
+      dragging = true; el.classList.add("held");
+    }
+    if(dragging){
+      b.x = Math.min(86, Math.max(0, (e.clientX/innerWidth)*100 - 8));
+      b.y = Math.min(82, Math.max(7, (e.clientY/innerHeight)*100 - 3));
+      el.style.left = b.x+"vw"; el.style.top = b.y+"vh";
+    }
+  });
+  el.addEventListener("pointerup", e=>{
+    el.releasePointerCapture(e.pointerId);
+    el.classList.remove("held");
+    if(dragging){ save(); } else { openSheet(b.id); }
+    dragging = false;
+  });
+  el.addEventListener("pointercancel", ()=>{ el.classList.remove("held"); dragging=false; });
+}
+
+/* コピー共通 */
+async function copyText(s, msg){
+  try{ await navigator.clipboard.writeText(s); toast(msg); }
+  catch(e){
+    const ta = document.createElement("textarea");
+    ta.value = s; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy"); ta.remove();
+    toast(msg);
+  }
+}
 
 /* シート */
 function openSheet(id){
@@ -293,6 +337,10 @@ document.getElementById("copyBtn").onclick = copyMd;
 document.getElementById("clearBtn").onclick = () => {
   if(!bubbles.length) return;
   if(confirm("ぜんぶ消します。コピーは済んでる？")){ bubbles = []; save(); render(); }
+};
+document.getElementById("copyOne").onclick = () => {
+  const b = bubbles.find(x=>x.id===activeId);
+  if(b) copyText(b.text, "全文をコピーしました");
 };
 document.getElementById("delOne").onclick = () => {
   bubbles = bubbles.filter(b=>b.id!==activeId);
